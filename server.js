@@ -1,12 +1,6 @@
 /* =====================================================================
    KAIRO SERVER v2 — Anti-crack + Telegram Bot + Encrypted API Proxy
    Deploy Render: Start Command = node server.js
-   ENV cần set trên Render:
-     BOT_TOKEN  = 9027713238:AAENbDfyG_beYGT7YldXXhjuAW1CCh46AcU
-     ADMIN_ID   = 7757046138
-     MASTER_SECRET = (chuỗi riêng của bạn, càng dài càng tốt)
-     API_HU_URL  = (url api hu gốc)
-     API_MD5_URL = (url api md5 gốc)
    ===================================================================== */
 'use strict';
 
@@ -20,7 +14,7 @@ const PORT          = process.env.PORT || 3000;
 const BOT_TOKEN     = process.env.BOT_TOKEN || '9027713238:AAENbDfyG_beYGT7YldXXhjuAW1CCh46AcU';
 const ADMIN_ID      = String(process.env.ADMIN_ID || '7757046138');
 const ADMIN_USER    = 'tranhoang2286';
-const MASTER_SECRET = process.env.MASTER_SECRET || 'CHANGE_ME_TO_RANDOM_64_CHARS_KAIRO_2025_x9f3Kq';
+const MASTER_SECRET = process.env.MASTER_SECRET || 'KAIRO_SECRET_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a';
 
 const API_HU_URL  = process.env.API_HU_URL  || 'https://fictional-happiness-betf.onrender.com/api/predict/lc79/hu';
 const API_MD5_URL = process.env.API_MD5_URL || 'https://fictional-happiness-betf.onrender.com/api/predict/lc79/md5';
@@ -30,11 +24,10 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '64kb' }));
 
-/* ================== STORAGE (in-memory, chống mất khi bot restart Render
-   bằng cách load/save vào biến global — vẫn mất khi restart, xem ghi chú) */
-const KEYS     = new Map(); // key -> { tool, expiresAt, hwid, createdAt, maxHwid, note }
-const SESSIONS = new Map(); // token -> { key, tool, hwid, expiresAt }
-const NONCES   = new Map(); // nonce -> ts (chống replay)
+/* ================== STORAGE ================== */
+const KEYS     = new Map();
+const SESSIONS = new Map();
+const NONCES   = new Map();
 
 /* ================== CRYPTO HELPERS ================== */
 const SECRET_BUF = crypto.createHash('sha256').update(MASTER_SECRET).digest();
@@ -122,17 +115,13 @@ async function handleUpdate(u) {
   const parts  = text.split(/\s+/);
   const cmd    = parts[0].toLowerCase();
 
-  // Log mọi admin action
   if (!isAdmin(fromId)) {
     if (cmd === '/start' || cmd === '/help') {
-      return reply(chatId,
-`🚫 *Bạn không phải admin.*
-Chỉ @${ADMIN_USER} mới có quyền tạo key.`);
+      return reply(chatId, `🚫 *Bạn không phải admin.*\nChỉ @${ADMIN_USER} mới có quyền tạo key.`);
     }
     return;
   }
 
-  /* ---- ADMIN COMMANDS ---- */
   if (cmd === '/start' || cmd === '/help') {
     return reply(chatId,
 `🔥 *KAIRO ADMIN BOT* 🔥
@@ -206,7 +195,6 @@ ${key}
     }
     if (!KEYS.has(target)) return reply(chatId, '❌ Key không tồn tại');
     KEYS.delete(target);
-    // Xoá luôn session dính key
     for (const [t, s] of SESSIONS) if (s.key === target) SESSIONS.delete(t);
     return reply(chatId, `🗑 Đã xoá key \`${target}\``);
   }
@@ -279,13 +267,6 @@ async function botLoop() {
 }
 
 /* ================== MIDDLEWARE ================== */
-function adminAuth(req, res, next) {
-  // Chỉ dùng cho endpoint nội bộ — HTML không bao giờ gọi admin routes
-  const id = req.headers['x-tg-id'] || req.query.id;
-  if (!isAdmin(id)) return res.status(403).json({ ok: false });
-  next();
-}
-
 function requireTool(tool) {
   return (req, res, next) => {
     const auth = req.headers['authorization'] || '';
@@ -295,16 +276,13 @@ function requireTool(tool) {
 
     if (!token || !sig || !nonce) return res.status(401).json({ ok: false, msg: 'missing' });
 
-    // Chống replay
     if (NONCES.has(nonce)) return res.status(409).json({ ok: false, msg: 'replay' });
     NONCES.set(nonce, Date.now());
-    // Dọn nonce cũ > 60s
     if (NONCES.size > 5000) {
       const cut = Date.now() - 60000;
       for (const [n, ts] of NONCES) if (ts < cut) NONCES.delete(n);
     }
 
-    // Verify HMAC: token|tool|nonce
     if (!safeEq(sig, hmac(token + '|' + tool + '|' + nonce))) {
       return res.status(403).json({ ok: false, msg: 'bad sig' });
     }
@@ -316,7 +294,6 @@ function requireTool(tool) {
     const ck = checkKeyUsable(s.key, tool);
     if (!ck.ok) return res.status(403).json({ ok: false, msg: ck.code });
 
-    // Kiểm tra HWID thực tế
     const hwid = req.headers['x-hwid'] || '';
     if (!hwid || hwid !== s.hwid) return res.status(403).json({ ok: false, msg: 'hwid' });
 
@@ -327,7 +304,6 @@ function requireTool(tool) {
 
 /* ================== ENDPOINTS ================== */
 
-/* 1. Bootstrap: HTML gọi 1 lần để lấy config đã mã hoá */
 app.get('/api/bootstrap', (req, res) => {
   const payload = {
     ts: Date.now(),
@@ -339,7 +315,6 @@ app.get('/api/bootstrap', (req, res) => {
   res.type('text/plain').send(encrypt(payload));
 });
 
-/* 2. Activate key -> trả session (mã hoá) */
 app.post('/api/activate', (req, res) => {
   const { key, tool, hwid } = req.body || {};
   if (!key || !tool || !hwid) {
@@ -351,7 +326,6 @@ app.post('/api/activate', (req, res) => {
   const ck = checkKeyUsable(key, tool);
   if (!ck.ok) return res.status(403).json({ ok: false, msg: ck.msg });
 
-  // HWID lock
   const k = ck.data;
   if (!k.hwid) {
     k.hwid = String(hwid).slice(0, 128);
@@ -376,7 +350,6 @@ app.post('/api/activate', (req, res) => {
   }));
 });
 
-/* 3. Tool proxy (yêu cầu key + sig + hwid + nonce) */
 async function proxy(url, res, label) {
   try {
     const r = await fetch(url + '?_=' + Date.now(), { cache: 'no-store' });
@@ -390,14 +363,18 @@ async function proxy(url, res, label) {
 app.get('/api/tool/hu',  requireTool('hu'),  (req, res) => proxy(API_HU_URL,  res, 'HU'));
 app.get('/api/tool/md5', requireTool('md5'), (req, res) => proxy(API_MD5_URL, res, 'MD5'));
 
-/* 4. Health */
+/* Trang chủ trả về JSON báo hiệu server đang chạy thay vì tìm file HTML */
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'online', 
+    message: 'KAIRO API SERVER IS RUNNING',
+    time: new Date().toISOString()
+  });
+});
+
 app.get('/api/health', (req, res) => res.json({
   ok: true, ts: Date.now(), keys: KEYS.size, sessions: SESSIONS.size
 }));
-
-/* 5. Trang chủ serve HTML */
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
-app.get('/index.html', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 /* ================== START ================== */
 app.listen(PORT, () => {
