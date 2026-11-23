@@ -16,8 +16,13 @@ const ADMIN_ID      = String(process.env.ADMIN_ID || '7757046138');
 const ADMIN_USER    = 'tranhoang2286';
 const MASTER_SECRET = process.env.MASTER_SECRET || 'KAIRO_SECRET_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a';
 
+/* === LC79 APIs (giữ nguyên) === */
 const API_HU_URL  = process.env.API_HU_URL  || 'https://fictional-happiness-betf.onrender.com/api/predict/lc79/hu';
 const API_MD5_URL = process.env.API_MD5_URL || 'https://fictional-happiness-betf.onrender.com/api/predict/lc79/md5';
+
+/* === BETVIP APIs (THÊM MỚI) === */
+const API_BETVIP_HU_URL  = process.env.API_BETVIP_HU_URL  || 'https://fictional-happiness-betf.onrender.com/api/jsonp/betvip/hu';
+const API_BETVIP_MD5_URL = process.env.API_BETVIP_MD5_URL || 'https://fictional-happiness-betf.onrender.com/api/jsonp/betvip/md5';
 
 /* ================== APP ================== */
 const app = express();
@@ -308,9 +313,14 @@ app.get('/api/bootstrap', (req, res) => {
   const payload = {
     ts: Date.now(),
     sigAlg: 'HMAC-SHA256-AES-GCM',
-    endpoints: { hu: '/api/tool/hu', md5: '/api/tool/md5' },
+    endpoints: {
+      hu: '/api/tool/hu',
+      md5: '/api/tool/md5',
+      betvip_hu: '/api/tool/betvip/hu',
+      betvip_md5: '/api/tool/betvip/md5'
+    },
     activate: '/api/activate',
-    version: '2.0'
+    version: '2.1'
   };
   res.type('text/plain').send(encrypt(payload));
 });
@@ -360,8 +370,14 @@ async function proxy(url, res, label) {
     res.status(502).json({ ok: false, msg: label + ' lỗi: ' + e.message });
   }
 }
+
+/* === LC79 routes (giữ nguyên) === */
 app.get('/api/tool/hu',  requireTool('hu'),  (req, res) => proxy(API_HU_URL,  res, 'HU'));
 app.get('/api/tool/md5', requireTool('md5'), (req, res) => proxy(API_MD5_URL, res, 'MD5'));
+
+/* === BETVIP routes (THÊM MỚI) === */
+app.get('/api/tool/betvip/hu',  requireTool('hu'),  (req, res) => proxy(API_BETVIP_HU_URL,  res, 'BETVIP-HU'));
+app.get('/api/tool/betvip/md5', requireTool('md5'), (req, res) => proxy(API_BETVIP_MD5_URL, res, 'BETVIP-MD5'));
 
 /* Trang chủ trả về JSON báo hiệu server đang chạy thay vì tìm file HTML */
 app.get('/', (req, res) => {
